@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Student Portal – Polyglot DB Demo</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="app">Loading...</div>
+
+<script>
+if (window.location.protocol === 'file:') {
+  document.getElementById('app').innerHTML =
+    '<h2 style="color:red;">Wrong URL</h2>' +
+    '<p>Open through Apache: <a href="http://localhost/student-portal/frontend/index.html">' +
+    'http://localhost/student-portal/frontend/index.html</a></p>';
+  throw new Error('file:// detected');
+}
+
+var GW = window.location.origin + '/student-portal/gateway/gateway.php';
+
+function api(route, method, body) {
+  var token = localStorage.getItem('sp_token');
+  var headers = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  return fetch(GW + '?route=' + encodeURIComponent(route), {
+    method: method || 'GET',
+    headers: headers,
+    body: body ? JSON.stringify(body) : undefined
+  }).then(function(r) {
+    return r.text().then(function(text) {
+      try { return JSON.parse(text); }
+      catch(e) { return { error: 'Non-JSON response', raw: text.substring(0, 400) }; }
+    });
+  });
+}
+
+function getUser() {
+  var t = localStorage.getItem('sp_token');
+  if (!t) return null;
+  try { return JSON.parse(atob(t)); } catch(e) { return null; }
+}
+
+function render(html) { document.getElementById('app').innerHTML = html; }
+function msg(id, text) { var el = document.getElementById(id); if (el) el.textContent = text; }
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+    return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+  });
+}
+
+function showLogin() {
+  render(
+    '<h1>Student Portal</h1>' +
+    '<p><b>Polyglot Database Demo:</b> Supabase + MySQL + SQLite</p>' +
+    '<p><b>Test accounts</b><br>' +
+    'Student &nbsp; – student@test.com / admin<br>' +
+    'Instructor – teacher@test.com / admin</p>' +
+    '<hr>' +
+    '<label>Email<input id="em" type="email" value="student@test.com"></label>' +
+    '<label>Password<input id="pw" type="password" value="admin"></label>' +
+    '<div style="padding: 16px 28px;">' +
+    '<button onclick="doLogin()">Login</button>' +
+    '</div>' +
+    '<p id="login-msg" style="color:red;"></p>'
+  );
+}
+
+function doLogin() {
+  var email = document.getElementById('em').value;
+  var pass  = document.getElementById('pw').value;
+  api('/api/auth/login', 'POST', { email: email, password: pass })
+    .then(function(res) {
+      if (res.token) {
+        localStorage.setItem('sp_token', res.token);
+        routePortal();
+      } else {
+        msg('login-msg', res.error || 'Login failed');
+      }
+    })
+    .catch(function(err) { msg('login-msg', 'Fetch failed: ' + err.message); });
+}
+
+function routePortal() {
+  var user = getUser();
+  if (!user) { showLogin(); return; }
+  if (user.role === 'student') showStudent('browse');
+  else if (user.role === 'instructor') showInstructor('my');
+  else showLogin();
+}
+
+function logout() { localStorage.removeItem('sp_token'); showLogin(); }
+
+function buildShell(name, role, buttons) {
+  render(
+    '<h2>Welcome, ' + esc(name) + ' <small>' + role + '</small></h2>' +
+    '<div style="padding: 16px 28px;">' +
+    buttons + ' <button onclick="logout()">Logout</button>' +
+    '</div>' +
+    '<div id="tab-content">Loading…</div>' +
+    '<p id="action-msg" style="color:green;"></p>'
+  );
+}
+
+function showStudent(tab) {
+  var user = getUser(); if (!user) { showLogin(); return; }
+  buildShell(user.name, 'student',
+    '<button onclick="showStudent(\'browse\')">Browse Courses</button>' +
+    '<button onclick="showStudent(\'my\')">My Courses</button>' +
+    '<button onclick="showStudent(\'notifications\')">Notifications</button>'
+  );
+  if (tab === 'browse') loadAllCourses(true);
+  else if (tab === 'my') loadMyCourses();
+  else if (tab === 'notifications') loadNotifications();
+}
+
+function loadAllCourses(showEnroll) {
+  api('/api/courses/courses', 'GET').then(function(data) {
+    if (!Array.isArray(data)) { setTab('<p style="color:red;">' + esc(data.error||'Error') + '</p>'); return; }
+    if (!data.length) { setTab('<p>No courses available.</p>'); return; }
+    var rows = data.map(function(c) {
+      var action = showEnroll ? '<button onclick="doEnroll(' + c.id + ')">Enroll</button>' : '';
+      return '<tr><td>' + c.id + '</td><td>' + esc(c.code) + '</td><td>' +
+             esc(c.name) + '</td><td>' + action + '</td></tr>';
+    }).join('');
+    setTab('<h3>All Courses <small>MySQL</small></h3>' +
+      '<table>' +
+      '<tr><th>#</th><th>Code</th><th>Name</th><th>Action</th></tr>' + rows + '</table>');
+  });
+}
+
+function loadMyCourses() {
+  api('/api/courses/my-courses', 'GET').then(function(data) {
+    if (!Array.isArray(data)) { setTab('<p style="color:red;">' + esc(data.error||'Error') + '</p>'); return; }
+    if (!data.length) { setTab('<p>Not enrolled yet. Browse courses to get started.</p>'); return; }
+    var rows = data.map(function(c) {
+      return '<tr><td>' + c.id + '</td><td>' + esc(c.code) + '</td><td>' + esc(c.name) +
+             '</td><td><button onclick="doDrop(' + c.id + ')">Drop</button></td></tr>';
+    }).join('');
+    setTab('<h3>My Enrolled Courses <small>MySQL</small></h3>' +
+      '<table>' +
+      '<tr><th>#</th><th>Code</th><th>Name</th><th>Action</th></tr>' + rows + '</table>');
+  });
+}
+
+function doEnroll(courseId) {
+  api('/api/courses/enroll', 'POST', { course_id: courseId })
+    .then(function(res) { msg('action-msg', res.message || res.error || ''); });
+}
+
+function doDrop(courseId) {
+  api('/api/courses/drop', 'POST', { course_id: courseId })
+    .then(function(res) {
+      if (res.success) showStudent('my');
+      else msg('action-msg', res.message || res.error || 'Failed');
+    });
+}
+
+function showInstructor(tab) {
+  var user = getUser(); if (!user) { showLogin(); return; }
+  buildShell(user.name, 'instructor',
+    '<button onclick="showInstructor(\'my\')">My Courses</button>' +
+    '<button onclick="showInstructor(\'new\')">+ New Course</button>' +
+    '<button onclick="showInstructor(\'notifications\')">Notifications</button>'
+  );
+  if (tab === 'my') loadInstructorCourses(user);
+  else if (tab === 'new') showNewCourseForm();
+  else if (tab === 'notifications') loadNotifications();
+}
+
+function loadInstructorCourses(user) {
+  api('/api/courses/courses', 'GET').then(function(data) {
+    if (!Array.isArray(data)) { setTab('<p style="color:red;">' + esc(data.error||'Error') + '</p>'); return; }
+    var mine = data.filter(function(c) { return String(c.instructor_id) === String(user.id); });
+    if (!mine.length) { setTab('<p>No courses created yet. Click <b>+ New Course</b> to add one.</p>'); return; }
+    var rows = mine.map(function(c) {
+      return '<tr><td>' + c.id + '</td><td>' + esc(c.code) + '</td><td>' + esc(c.name) + '</td></tr>';
+    }).join('');
+    setTab('<h3>My Courses <small>MySQL</small></h3>' +
+      '<table>' +
+      '<tr><th>#</th><th>Code</th><th>Name</th></tr>' + rows + '</table>');
+  });
+}
+
+function showNewCourseForm() {
+  setTab(
+    '<h3>Create New Course</h3>' +
+    '<label>Course Code<input id="c-code" placeholder="e.g. CS201"></label>' +
+    '<label>Course Name<input id="c-name" placeholder="e.g. Data Structures"></label>' +
+    '<div style="padding: 16px 28px;">' +
+    '<button onclick="doCreateCourse()">Create Course</button>' +
+    '</div>' +
+    '<p id="create-msg" style="color:green;"></p>'
+  );
+}
+
+function doCreateCourse() {
+  var code = document.getElementById('c-code').value.trim();
+  var name = document.getElementById('c-name').value.trim();
+  if (!code || !name) { msg('create-msg', 'Both fields are required.'); return; }
+  api('/api/courses/courses', 'POST', { code: code, name: name }).then(function(res) {
+    if (res.id) {
+      msg('create-msg', 'Created "' + res.name + '" (id=' + res.id + ')');
+      document.getElementById('c-code').value = '';
+      document.getElementById('c-name').value = '';
+    } else {
+      msg('create-msg', res.error || 'Failed');
+    }
+  });
+}
+
+function loadNotifications() {
+  api('/api/notifications/notifications', 'GET').then(function(data) {
+    if (!Array.isArray(data)) { setTab('<p style="color:red;">' + esc(data.error||'Error') + '</p>'); return; }
+    if (!data.length) { setTab('<p>No notifications yet. Enroll or drop a course to generate one.</p>'); return; }
+
+    var rows = data.map(function(n) {
+      var d = n.data || {};
+      var detail = '';
+      if (n.event === 'enrollment') {
+        detail = esc(d.student_name || 'student') + ' enrolled in ' +
+                 esc(d.course_code || '') + (d.course_name ? ' (' + esc(d.course_name) + ')' : '');
+      } else if (n.event === 'drop') {
+        detail = esc(d.student_name || 'student') + ' dropped ' +
+                 esc(d.course_code || '') + (d.course_name ? ' (' + esc(d.course_name) + ')' : '');
+      } else {
+        detail = esc(JSON.stringify(d));
+      }
+      var color = n.status === 'done' ? 'gray' : 'darkorange';
+      return '<tr><td>' + n.id + '</td><td>' + esc(n.created_at) + '</td>' +
+        '<td><b>' + esc(n.event.toUpperCase()) + '</b></td><td>' + detail + '</td>' +
+        '<td style="color:' + color + ';">' + esc(n.status) + '</td></tr>';
+    }).join('');
+
+    setTab(
+      '<h3>Notifications <small>SQLite</small></h3>' +
+      '<div style="padding: 0 28px 12px 28px;">' +
+      '<button onclick="loadNotifications()">&#8635; Refresh</button>' +
+      '</div>' +
+      '<table>' +
+      '<tr><th>#</th><th>When</th><th>Event</th><th>Details</th><th>Status</th></tr>' +
+      rows + '</table>' +
+      '<p><small>Run <code>php worker.php</code> in CMD to mark events as done.</small></p>'
+    );
+  });
+}
+
+function setTab(html) {
+  var el = document.getElementById('tab-content');
+  if (el) el.innerHTML = html;
+}
+
+routePortal();
+</script>
+</body>
+</html>
