@@ -1,6 +1,5 @@
 - Downloaded XAMPP and used the admin to create the database using mysql on php my admin for the Courses database.
 - Created supabase project. 
-- Project url: https://wyovdjsodjbowygegmza.supabase.co
-- anon public: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind5b3ZkanNvZGpib3d5Z2VnbXphIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzczOTg1NTMsImV4cCI6MjA5Mjk3NDU1M30.Nx9UY2o8vi9tXGjUvpl3jPVi15acXT9dS_ClAzIdQrM
-
-- 
+- Project url: ******
+- anon public: *****
+- added in the config.php the admin credentials for the databases
